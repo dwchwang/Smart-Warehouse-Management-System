@@ -90,7 +90,7 @@ Docs-as-code: tài liệu nằm trong repo, thay đổi qua PR. Sơ đồ dùng 
 docs/
 ├── 00-vision-scope.md        # persona, nỗi đau, phạm vi v1 làm/không làm, tiêu chí thành công
 ├── 01-requirements/
-│   ├── user-stories.md       # theo epic, mỗi story có AC Given/When/Then
+│   ├── user-stories.md       # theo epic, mỗi story có AC Given/When/Then + sơ đồ use case (actor ↔ chức năng)
 │   └── nfr.md                # yêu cầu phi chức năng + SLO sơ bộ
 ├── 02-domain/
 │   ├── glossary.md
@@ -127,6 +127,8 @@ Ngoài `docs/`, Phase 0 còn tạo: `.github/` (issue template story/bug/task, P
 
 ## 5. Kiến trúc module (modular monolith)
 
+> **Mức độ: phác thảo.** Phase 0 ưu tiên nghiệp vụ và cách giải bài toán. Mục này chỉ ghi hướng đi; khái niệm module, ranh giới và lý do sẽ được giải thích kỹ và chốt khi viết `02-domain/context-map.md` và ADR-0001/0003. Nguyên tắc chung cho cả Phase 0: phần nào đến lượt thì đào sâu phần đó.
+
 Một ứng dụng Spring Boot, một database PostgreSQL, **mỗi module sở hữu một schema riêng**.
 
 ```mermaid
@@ -152,7 +154,7 @@ flowchart LR
 
 **5 luật ranh giới (chuẩn bị tách service ở v2):**
 1. Một hành động người dùng = một transaction = **một** lệnh `InventoryApi` (batch nhiều dòng).
-2. Mọi lệnh inventory idempotent theo key dạng `{REFERENCE_TYPE}:{referenceId}:{ACTION}`.
+2. Mọi lệnh inventory idempotent theo key dạng `{REFERENCE_TYPE}:{referenceId}:{ACTION}` (khác với `Idempotency-Key` của HTTP ở mục 6.1; key lệnh được inventory tự lưu và chặn trùng bằng ràng buộc unique).
 3. Không FK, không JOIN xuyên schema; chỉ lưu ID. Dữ liệu hiển thị lấy qua API module.
 4. Kết quả nghiệp vụ trả về dạng giá trị (`INSUFFICIENT_STOCK`, `ALREADY_PROCESSED`), không ném exception nội bộ sang module khác.
 5. Tác dụng phụ đi qua domain event, không gọi trực tiếp.
@@ -161,7 +163,7 @@ flowchart LR
 
 **Domain events** (Spring Modulith + Event Publication Registry, đóng vai transactional outbox; v2 bật externalization sang Kafka):
 `StockReceived`, `StockReserved`, `StockReleased`, `StockCommitted`, `StockAdjusted`, `StockTransferredOut`, `StockTransferredIn`, `OrderStatusChanged`.
-Consumer v1 duy nhất: cảnh báo tồn thấp.
+Consumer v1 duy nhất: cảnh báo tồn thấp — bật khi `available < min_stock` của SKU tại kho đó; không bật lại cho tới khi tồn đã hồi phục trên ngưỡng.
 
 **Kiểm tra tự động:** `ApplicationModules.verify()` chạy trong CI.
 
@@ -181,7 +183,7 @@ Consumer v1 duy nhất: cảnh báo tồn thấp.
 | I4 | `reserved = Σ reservations ACTIVE` | Bảng `reservations` + đối soát |
 | I5 | Ledger append-only | `REVOKE UPDATE, DELETE` với user app + trigger chặn |
 
-Sửa sai bằng movement bù, không sửa movement cũ.
+Sửa sai bằng movement bù, không sửa movement cũ. Job đối soát (I3, I4) phát hiện lệch thì **chỉ cảnh báo**, không tự sửa; người có quyền điều tra rồi điều chỉnh.
 
 **Movement types:** `INBOUND`, `OUTBOUND`, `TRANSFER_OUT`, `TRANSFER_IN`, `ADJUSTMENT`. (`reserved` thay đổi được ghi ở `reservations`, không sinh movement vì `on_hand` không đổi.)
 
@@ -201,7 +203,7 @@ Sửa sai bằng movement bù, không sửa movement cũ.
 
 - Staff tạo, xác nhận. Nhận hàng được nhiều lần một phần; mỗi lần nhận ghi `INBOUND` ngay.
 - Không nhận vượt `expected_qty`; hàng dư tạo phiếu nhập bổ sung.
-- Manager đóng phiếu (COMPLETED) kể cả khi thiếu; phần thiếu lưu `short_qty`.
+- Nhận đủ mọi dòng → tự động COMPLETED. Còn thiếu → Manager đóng phiếu (COMPLETED); phần thiếu lưu `short_qty`.
 - Chỉ hủy khi chưa nhận lần nào.
 
 ### 6.3. Xuất kho
@@ -209,10 +211,11 @@ Sửa sai bằng movement bù, không sửa movement cũ.
 `DRAFT → CONFIRMED → PICKING → COMPLETED | CANCELLED`
 
 - **Reserve khi CONFIRM**, all-or-nothing. Thiếu → phiếu giữ DRAFT, lỗi liệt kê từng dòng thiếu.
-- Phiếu từ channel: tạo + confirm trong một request.
-- **Giữ chỗ quá hạn không tự hủy phiếu.** Job định kỳ đánh dấu phiếu CONFIRMED chưa sang PICKING quá 24h (channel) / 48h (tay) là "giữ chỗ quá hạn"; Manager xem trên dashboard, release/hủy hàng loạt. Ngưỡng cấu hình được.
+- Phiếu từ channel: tạo + confirm trong một request; request bắt buộc ghi `warehouseCode`, kho đó phải nằm trong danh sách kho được gán cho channel client.
+- PICKING bắt đầu khi staff bấm "bắt đầu lấy hàng".
+- **Giữ chỗ quá hạn không tự hủy phiếu.** Job định kỳ đánh dấu phiếu CONFIRMED chưa sang PICKING quá 24h (channel) / 48h (tay) là "giữ chỗ quá hạn"; Manager xem trên một màn hình danh sách, release/hủy hàng loạt. Ngưỡng cấu hình được.
 - Short pick được phép: COMPLETE commit phần đã pick, release phần còn lại, bắt buộc lý do.
-- Hủy từ CONFIRMED/PICKING → release toàn bộ.
+- Hủy từ CONFIRMED/PICKING → release toàn bộ. Staff chỉ hủy được phiếu DRAFT; hủy phiếu đã giữ chỗ cần Manager (hoặc channel client với phiếu của chính nó).
 
 ### 6.4. Chuyển kho
 
@@ -261,12 +264,14 @@ Channel client xác thực bằng Keycloak client credentials; mỗi kênh một
 
 | Lớp | Lựa chọn |
 |---|---|
-| Backend | Java 21, Spring Boot 3, Spring Modulith, Spring Data JPA (+ native query cho UPDATE có điều kiện), Flyway (thư mục migration theo module) |
-| DB | PostgreSQL 16 (idempotency cũng lưu ở PG) |
+| Backend | Java LTS mới nhất (25), Spring Boot 4.x, Spring Modulith 2.x, Spring Data JPA (+ native query cho UPDATE có điều kiện), Flyway (thư mục migration theo module) |
+| DB | PostgreSQL 18 (có sẵn hàm `uuidv7()`; idempotency cũng lưu ở PG) |
 | Auth | Keycloak, realm-as-code (JSON import) |
 | Frontend | Next.js (App Router) + TypeScript, Auth.js, orval (client + TanStack Query sinh từ OpenAPI), shadcn/ui hoặc Ant Design (chốt trong ADR ở Sprint 1) |
 | Test | JUnit 5, Testcontainers, Modulith verify, test concurrency, Playwright cho luồng E2E chính |
 | Local | docker-compose: api, web, postgres, keycloak |
+
+Phiên bản chính xác của từng thành phần được kiểm tra lại và chốt trong ADR ở Sprint 1 (ưu tiên bản GA/LTS mới nhất còn được hỗ trợ).
 
 **Repo:** monorepo — `apps/api`, `apps/web`, `docs/`, `deploy/` (từ Phase 2), `.github/`, `docker-compose.yml`. CI lọc theo path.
 
