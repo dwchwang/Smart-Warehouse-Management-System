@@ -1,0 +1,10 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false,          // không giới hạn độ dài dòng (bảng tiếng Việt dài)
+    "MD033": false,          // cho phép <br/> trong bảng/Mermaid
+    "MD041": false,
+    "MD024": { "siblings_only": true }
+  },
+  "ignores": ["docs/superpowers/**", "overview.md", "node_modules/**", ".superpowers/**"]
+}
