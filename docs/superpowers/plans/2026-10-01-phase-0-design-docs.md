@@ -6,7 +6,7 @@
 
 **Architecture:** Docs-as-code trong monorepo `dwchwang/Smart-Warehouse-Management-System`. Mỗi tài liệu là một PR riêng vào `main`, có CI kiểm tra (markdownlint, Mermaid render, Redocly lint OpenAPI). Tài liệu nghiệp vụ đi trước (tuần 1), tài liệu giải pháp bám theo (tuần 2). Mọi tài liệu nghiệp vụ có một **checkpoint với chủ dự án** để đào sâu trước khi merge.
 
-**Tech Stack:** Markdown + Mermaid, OpenAPI 3.1, GitHub (Issues, Projects, Actions, `gh` CLI), Node 20 + `npx` (markdownlint-cli2, @mermaid-js/mermaid-cli, @redocly/cli).
+**Tech Stack:** Markdown + Mermaid, OpenAPI 3.1, GitHub (Issues, Projects, Actions, `gh` CLI), Node 22 (`.nvmrc`; mermaid-cli 12 cần ≥ 22.13) + `npx` (markdownlint-cli2, @mermaid-js/mermaid-cli, @redocly/cli).
 
 **Spec:** `docs/superpowers/specs/2026-09-30-phase-0-design.md` — khi plan và spec lệch nhau, spec thắng; sửa spec trước (PR riêng) rồi mới làm khác.
 
@@ -95,17 +95,7 @@ Thứ tự task bám lịch spec mục 4, trừ Task 1: khung repo + CI tài li�
 **Interfaces:**
 - Produces: lệnh `./scripts/check-docs.sh` (exit 0 = tài liệu hợp lệ) mà mọi task sau dùng; workflow CI tên `docs` và check `pr-title`.
 
-- [ ] **Step 1: Đồng bộ branch với remote**
-
-Remote `origin/main` đang ở `fe71b3c`; local là `master` có thêm `f36abc0`.
-
-```bash
-git branch -m master main
-git fetch origin
-git branch -u origin/main main
-git status -sb   # Expected: "## main...origin/main [ahead 1]"
-git push origin main
-```
+- [x] **Step 1: Đồng bộ branch với remote** — đã làm ngoài phiên (local `main` = `origin/main` tại `352cf5c`). Thay bằng: cài git hook `.githooks/pre-commit` chặn commit trên `main` và bật `git config core.hooksPath .githooks`; kiểm chứng trong repo tạm: commit trên `main` → exit 1, trên branch → exit 0.
 
 - [ ] **Step 2: Tạo branch làm việc**
 
@@ -220,7 +210,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
       - run: ./scripts/check-docs.sh
 ```
 
@@ -821,7 +811,7 @@ Expected: mọi dòng nhắc tới đều thống nhất `platform`.
 ```markdown
 **Daily YYYY-MM-DD** — ✅ xong: … · ▶️ tiếp: … · ⛔ vướng: …
 ```
-và mẫu retro `docs/process/retros/sprint-N.md`: `## Giữ` `## Bỏ` `## Thử` `## Ước lượng vs thực tế`.
+và mẫu retro `docs/process/retros/sprint-N.md`: `## Giữ` `## Bỏ` `## Thử` `## Ước lượng vs thực tế`. Thêm mục `## Ngoại lệ bootstrap`: 3 commit đầu (`fe71b3c`, `f36abc0`, `352cf5c`) vào thẳng `main` trước khi có quy trình; từ PR `docs/repo-bootstrap` trở đi mọi thay đổi qua PR, được chặn bởi git hook + branch protection.
 
 - [ ] **Step 3: Issue template `story.yml`**
 ```yaml

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Chặn commit trực tiếp lên main: mọi thay đổi phải đi qua branch + PR.
+# Bật: git config core.hooksPath .githooks
+branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+if [ "$branch" = "main" ]; then
+  echo "✋ Không commit trực tiếp lên main. Tạo branch: git switch -c docs/<slug>" >&2
+  exit 1
+fi
